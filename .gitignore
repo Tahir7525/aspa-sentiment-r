@@ -1,3 +1,43 @@
+# ========== R & RStudio ==========
+.Rproj.user/
 .Rhistory
 .RData
-renv/library
+.Ruserdata
+.Rapp.history
+
+# renv (keep lockfile, ignore local libs)
+renv/library/
+renv/staging/
+
+# ========== Temporary or system files ==========
+.DS_Store
+Thumbs.db
+*.tmp
+~$*
+
+# ========== Logs & cache ==========
+*.log
+*.Rout
+*.RDataTmp
+.Rproj.user/
+
+# ========== Models & large generated objects ==========
+# You can un-comment these if model binaries get too big
+# models/*.rds
+# models/*.RDS
+
+# ========== Data (optional; keep sample CSVs small) ==========
+# data/*
+
+# ========== Reports & Figures ==========
+# keep these tracked, since they’re part of deliverables
+# if you generate temporary intermediate reports, ignore only those:
+reports/test_predictions.csv
+
+# ========== Notebooks checkpoints (if you ever use Jupyter / Rmd checkpoints) ==========
+.ipynb_checkpoints/
+.Rcheck/
+
+# ========== VSCode / Other IDEs (optional future-proofing) ==========
+.vscode/
+.idea/
