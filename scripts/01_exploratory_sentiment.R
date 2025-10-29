@@ -19,6 +19,7 @@ library(dplyr)
 library(reshape2)
 library(scales)
 library(tm)        # for stopwords
+library(ggtext)
 # svg export (optional). If not installed, we'll skip SVG.
 svglite_available <- requireNamespace("svglite", quietly = TRUE)
 
@@ -133,11 +134,11 @@ wordfreqs_all <- as.numeric(term_scores_sorted[1:length(wordlist_all)])
 
 # Square PNG
 png(file.path(OUTPUT_FIGURES, "wordcloud_top_terms.png"),
-    width = 2300, height = 2300, res = 300)
+    width = 2300, height = 2300, res = 300, bg = "transparent")
 par(mar = c(0,0,0,0))
 set.seed(123)
 wordcloud(words = wordlist_all, freq = wordfreqs_all, min.freq = 2,
-          scale = c(5, 0.3), max.words = max_words_wc, random.order = FALSE,
+          scale = c(5, 0.6), max.words = max_words_wc, random.order = FALSE,
           rot.per = 0.2, use.r.layout = FALSE, colors = brewer.pal(8, "Dark2"))
 dev.off()
 
@@ -215,24 +216,80 @@ p_hist_compare <- ggplot(tmp_m, aes(x = score)) +
 ggsave(file.path(OUTPUT_FIGURES, "sentiment_hist_lexicons.png"), p_hist_compare, width = 12, height = 6, dpi = 300)
 message("Saved sentiment histogram comparison: sentiment_hist_lexicons.png")
 
-# ---- 10. Pie chart of sentiment distribution (bing labels) with percentages ----
+# ---- Pie chart: white background + boxed title/subtitle/legend (ggtext) ----
+# requires ggtext
+if (!requireNamespace("ggtext", quietly = TRUE)) {
+  message("ggtext not found. Install with: install.packages('ggtext') to get boxed title/subtitle styling.")
+  library(ggtext)  # will error if not installed, but user sees message
+} else {
+  library(ggtext)
+}
+
 dist_bing <- as.data.frame(table(sentiment_df$label_bing))
 names(dist_bing) <- c("label","count")
 dist_bing <- dist_bing %>% arrange(desc(count))
 dist_bing$percent <- round(100 * dist_bing$count / sum(dist_bing$count), 1)
 dist_bing$label_pct <- paste0(dist_bing$label, " (", dist_bing$percent, "%)")
 
-p_pie_bing <- ggplot(dist_bing, aes(x = "", y = count, fill = label)) +
-  geom_bar(width = 1, stat = "identity") +
-  coord_polar(theta = "y") +
-  geom_text(aes(label = paste0(percent, "%")), 
-            position = position_stack(vjust = 0.5), size = 4) +
-  theme_void() +
-  scale_fill_brewer(palette = "Set2") +
-  labs(title = "Sentiment Distribution (Bing lexicon)", fill = "Sentiment")
+# color palette (enough colors for up to 10 categories safely)
+fill_cols <- RColorBrewer::brewer.pal(max(3, nrow(dist_bing)), "Dark2")
 
-ggsave(file.path(OUTPUT_FIGURES, "sentiment_distribution_bing.png"), p_pie_bing, width = 6, height = 6, dpi = 300)
-message("Saved sentiment distribution pie (bing) with percentages: sentiment_distribution_bing.png")
+p_pie_bing_boxed <- ggplot(dist_bing, aes(x = "", y = count, fill = label)) +
+  geom_bar(width = 1, stat = "identity", color = "white", linewidth = 0.4) +
+  coord_polar(theta = "y") +
+  geom_label(
+    aes(label = paste0(percent, "%")),
+    position = position_stack(vjust = 0.5),
+    size = 4.2, fontface = "bold",
+    color = "black",
+    fill = alpha("white", 0.95),   # near-opaque white box behind each slice label
+    label.size = 0.25,
+    label.r = unit(4, "pt")
+  ) +
+  scale_fill_manual(values = fill_cols) +
+  theme_void() +
+  labs(
+    title = "Sentiment Distribution (Bing lexicon)",
+    subtitle = "Percentages of positive, neutral, and negative reviews",
+    fill = "Sentiment"
+  ) +
+  theme(
+    # boxed title (semi-opaque white chip)
+    plot.title = ggtext::element_textbox_simple(
+      size = 16, face = "bold", halign = 0.5,
+      margin = margin(b = 6, t = 4),
+      fill = alpha("white", 0.95), color = "black", r = unit(4, "pt"),
+      padding = margin(4, 8, 4, 8)
+    ),
+    plot.subtitle = ggtext::element_textbox_simple(
+      size = 11, halign = 0.5,
+      fill = alpha("white", 0.95), color = "black", r = unit(3, "pt"),
+      padding = margin(2, 6, 2, 6)
+    ),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.title = ggtext::element_textbox_simple(
+      size = 10, face = "bold",
+      fill = alpha("white", 0.95), color = "black", r = unit(3, "pt"),
+      padding = margin(2, 4, 2, 4)
+    ),
+    legend.text = ggtext::element_textbox_simple(
+      size = 10,
+      fill = alpha("white", 0.9), color = "black", r = unit(3, "pt"),
+      padding = margin(1, 3, 1, 3)
+    ),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+# save with white background for global readability
+ggsave(
+  file.path(OUTPUT_FIGURES, "sentiment_distribution_bing.png"),
+  p_pie_bing_boxed,
+  width = 7, height = 7, dpi = 300, bg = "white"
+)
+
+message("Saved boxed pie chart with white background: sentiment_distribution_bing.png")
+
 
 # ---- 11. NRC emotions (may take a bit) and improved bar plot ----
 nrc_data <- get_nrc_sentiment(texts)   # might be slow on ~20k reviews
