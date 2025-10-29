@@ -1,85 +1,94 @@
 # scripts/01_exploratory_sentiment.R
 # Exploratory sentiment analysis using text2vec (memory-efficient)
-source("scripts/00_project_setup.R")
+# - High-quality figures (PNG + SVG)
+# - Lexicon comparison (syuzhet, bing, afinn)
+# - Robust term-score extraction with safe fallbacks
+# - Exports CSVs for reporting
 
+source("scripts/00_project_setup.R")  # sets PROJECT_ROOT, DATA_PATH, OUTPUT_FIGURES, OUTPUT_MODELS
+
+# ---- libraries ----
 library(text2vec)
 library(data.table)
 library(ggplot2)
 library(wordcloud)
 library(RColorBrewer)
 library(syuzhet)
-library(Matrix)    # explicit for sparse matrix helpers
+library(Matrix)
+library(dplyr)
+library(reshape2)
+library(scales)
+library(tm)        # for stopwords
+# svg export (optional). If not installed, we'll skip SVG.
+svglite_available <- requireNamespace("svglite", quietly = TRUE)
 
-# 1. Load and basic clean
+# ensure outputs exist
+dir.create(OUTPUT_FIGURES, showWarnings = FALSE, recursive = TRUE)
+dir.create(OUTPUT_MODELS, showWarnings = FALSE, recursive = TRUE)
+dir.create("reports", showWarnings = FALSE, recursive = TRUE)
+
+# ---- 1. Load and basic clean ----
 data <- read.csv(DATA_PATH, header = TRUE, stringsAsFactors = FALSE)
 message("Rows: ", nrow(data), " Columns: ", paste(names(data), collapse = ", "))
 
-# remove NA or empty reviews
 data$Review <- iconv(data$Review, to = "UTF-8", sub = "byte")
 data$Review <- gsub("\t|\r|\n", " ", data$Review)
 data$Review <- trimws(data$Review)
 data <- data[!is.na(data$Review) & nchar(data$Review) > 0, ]
 message("After dropping NA/empty reviews: ", nrow(data), " rows")
 
-# 2. Prepare text vector
 texts <- data$Review
 
-# 3. Create itoken iterator (preprocessing + tokenization)
+# ---- 2. Create itoken iterator ----
 prep_fun <- tolower
 tok_fun  <- word_tokenizer
-
 it_all <- itoken(texts, preprocessor = prep_fun, tokenizer = tok_fun, progressbar = TRUE)
 
-# 4. Build vocabulary (prune to keep memory reasonable)
-vocab <- create_vocabulary(it_all, stopwords = stopwords("en"))
+# ---- 3. Build vocabulary with tm stopwords ----
+vocab <- create_vocabulary(it_all, stopwords = tm::stopwords("english"))
 vocab <- prune_vocabulary(vocab,
                           term_count_min = 5,
                           doc_proportion_min = 0.0005,
                           doc_proportion_max = 0.8)
-
 message("Vocabulary size after pruning: ", nrow(vocab))
 
-# Save vocabulary for reproducibility / later use
-vocab_path <- file.path(OUTPUT_MODELS, "vocabulary.rds")
-dir.create(OUTPUT_MODELS, showWarnings = FALSE)
-saveRDS(vocab, file = vocab_path)
-message("Saved vocab to: ", vocab_path)
+# save vocab
+saveRDS(vocab, file = file.path(OUTPUT_MODELS, "vocabulary.rds"))
+message("Saved vocab to: ", file.path(OUTPUT_MODELS, "vocabulary.rds"))
 
-# 5. Create vectorizer and sparse DTM (documents x terms)
+# ---- 4. create DTM and TF-IDF ----
 vectorizer <- vocab_vectorizer(vocab)
-it_all <- itoken(texts, preprocessor = prep_fun, tokenizer = tok_fun, progressbar = TRUE) # re-create iterator
-dtm <- create_dtm(it_all, vectorizer)  # sparse dgCMatrix (n_docs x n_terms)
+it_all <- itoken(texts, preprocessor = prep_fun, tokenizer = tok_fun, progressbar = TRUE)
+dtm <- create_dtm(it_all, vectorizer)                 # sparse dgCMatrix
+message("DTM dims: ", paste(dim(dtm), collapse = " x "))
 
-# 6. TF-IDF transform
-tfidf_transformer <- TfIdf$new(norm = "l2")   # keep sparse format
+tfidf_transformer <- TfIdf$new(norm = "l2")
 dtm_tfidf <- tfidf_transformer$fit_transform(dtm)
+message("TF-IDF dims: ", paste(dim(dtm_tfidf), collapse = " x "))
 
-# -------------------------
-# Helper: robust column sums
-# -------------------------
+# save transformer
+saveRDS(tfidf_transformer, file = file.path(OUTPUT_MODELS, "tfidf_transformer.rds"))
+message("Saved TF-IDF transformer to: ", file.path(OUTPUT_MODELS, "tfidf_transformer.rds"))
+
+# ---- Helper: robust column sums ----
 compute_col_sums_safe <- function(obj) {
-  # Try Matrix::colSums for sparse Matrix
+  # try Matrix::colSums for sparse
   try({
     if (inherits(obj, "dgCMatrix") || inherits(obj, "dgTMatrix") || inherits(obj, "sparseMatrix")) {
       cs <- Matrix::colSums(obj)
       if (!is.null(cs) && length(cs) > 0) return(as.numeric(cs))
     }
   }, silent = TRUE)
-
-  # Try base colSums if it's a matrix-like object
+  # try base colSums if matrix
   try({
     if (is.matrix(obj)) {
       cs <- base::colSums(obj)
       if (!is.null(cs) && length(cs) > 0) return(as.numeric(cs))
     }
   }, silent = TRUE)
-
-  # If obj is numeric vector with names
-  if (is.numeric(obj) && !is.null(names(obj))) {
-    return(as.numeric(obj))
-  }
-
-  # Try coercing to matrix and then colSums
+  # numeric vector with names
+  if (is.numeric(obj) && !is.null(names(obj))) return(as.numeric(obj))
+  # try coercion
   try({
     m <- as.matrix(obj)
     if (is.matrix(m)) {
@@ -87,106 +96,165 @@ compute_col_sums_safe <- function(obj) {
       if (!is.null(cs) && length(cs) > 0) return(as.numeric(cs))
     }
   }, silent = TRUE)
-
-  # Fallback: NULL (caller should try other sources)
   return(NULL)
 }
 
-# --- Robust replacement with safe attempts ---
-term_scores <- NULL
-
-# 1) Try dtm_tfidf
-if (exists("dtm_tfidf")) {
-  term_scores <- compute_col_sums_safe(dtm_tfidf)
-  if (!is.null(term_scores)) {
-    names(term_scores) <- colnames(dtm_tfidf) %||% names(term_scores)
-    message("Using dtm_tfidf column sums for term scores.")
-  } else {
-    message("dtm_tfidf exists but column-sum extraction failed; will try dtm.")
-  }
-}
-
-# 2) Try dtm if previous failed
-if (is.null(term_scores) && exists("dtm")) {
+# ---- 5. Compute term scores for plotting ----
+term_scores <- compute_col_sums_safe(dtm_tfidf)
+if (!is.null(term_scores)) {
+  if (is.null(names(term_scores)) && !is.null(colnames(dtm_tfidf))) names(term_scores) <- colnames(dtm_tfidf)
+  message("Using TF-IDF column sums for term scores.")
+} else {
   term_scores <- compute_col_sums_safe(dtm)
   if (!is.null(term_scores)) {
-    names(term_scores) <- colnames(dtm) %||% names(term_scores)
-    message("Using dtm column sums for term scores.")
+    if (is.null(names(term_scores)) && !is.null(colnames(dtm))) names(term_scores) <- colnames(dtm)
+    message("Using DTM counts for term scores (fallback).")
+  } else if (!is.null(vocab$term_count)) {
+    term_scores <- setNames(vocab$term_count, vocab$term)
+    message("Falling back to vocabulary term_count for term scores.")
   } else {
-    message("dtm exists but column-sum extraction failed; will try vocab fallback.")
+    stop("Cannot compute term scores from dtm_tfidf, dtm, or vocab.")
   }
 }
 
-# 3) Fallback to vocabulary counts
-if (is.null(term_scores) && exists("vocab") && !is.null(vocab$term_count)) {
-  term_scores <- setNames(vocab$term_count, vocab$term)
-  message("Falling back to vocab$term_count for term scores.")
-}
-
-# If still NULL -> stop with clear error
-if (is.null(term_scores)) {
-  stop("Cannot compute term scores: dtm_tfidf and dtm both failed and vocab fallback not available.")
-}
-
-# Ensure names present
-if (is.null(names(term_scores)) && exists("dtm") && !is.null(colnames(dtm))) {
-  names(term_scores) <- colnames(dtm)
-}
-
-# proceed to sort and plot
 term_scores_sorted <- sort(term_scores, decreasing = TRUE)
-top_n <- min(length(term_scores_sorted), 50)
-top_terms_df <- data.frame(term = names(term_scores_sorted)[1:top_n],
-                           score = as.numeric(term_scores_sorted[1:top_n]),
+top_terms_df <- data.frame(term = names(term_scores_sorted),
+                           score = as.numeric(term_scores_sorted),
                            stringsAsFactors = FALSE)
+# save full top terms table
+write.csv(top_terms_df, file = file.path("reports", "top_terms_tfidf_full.csv"), row.names = FALSE)
+message("Saved full top-terms table to reports/top_terms_tfidf_full.csv")
 
-# plot top terms
-p_top <- ggplot(top_terms_df[1:min(20, nrow(top_terms_df)),], aes(reorder(term, score), score)) +
-  geom_col() + coord_flip() + labs(title = "Top terms (TF-IDF or counts)", x = "", y = "Score")
-ggsave(file.path(OUTPUT_FIGURES, "top_terms_text2vec.png"), p_top, width = 8, height = 6)
-message("Saved top terms plot to figures/")
+# ---- 6. Wordcloud (no artificial strict cap; use reasonable max based on vocab) ----
+max_words_wc <- max( min(250, length(term_scores_sorted)), 100 )  # allow many words but bounded
+wordlist_all <- names(term_scores_sorted)[1:max_words_wc]
+wordfreqs_all <- as.numeric(term_scores_sorted[1:length(wordlist_all)])
 
-# wordcloud
-png(file.path(OUTPUT_FIGURES, "wordcloud_text2vec.png"), width = 900, height = 700)
+
+# Square PNG
+png(file.path(OUTPUT_FIGURES, "wordcloud_top_terms.png"),
+    width = 2300, height = 2300, res = 300)
+par(mar = c(0,0,0,0))
 set.seed(123)
-wordlist <- names(term_scores_sorted)[1:min(length(term_scores_sorted), 150)]
-wordfreqs <- as.numeric(term_scores_sorted[1:length(wordlist)])
-wordcloud(wordlist, freq = wordfreqs, min.freq = 2, scale = c(3, 0.4), max.words = length(wordlist), random.order = FALSE, colors = brewer.pal(8, "Dark2"))
+wordcloud(words = wordlist_all, freq = wordfreqs_all, min.freq = 2,
+          scale = c(5, 0.3), max.words = max_words_wc, random.order = FALSE,
+          rot.per = 0.2, use.r.layout = FALSE, colors = brewer.pal(8, "Dark2"))
 dev.off()
-message("Saved wordcloud to figures/")
 
-# 9. Sentiment scores using syuzhet/bing/afinn (for exploratory insight)
+message("Saved wordcloud: wordcloud_top_terms.png")
+
+# ---- 7. Top terms bar plot (top 20) with explanatory text and labels ----
+top20 <- head(top_terms_df, 20)
+p_top_pretty <- ggplot(top20, aes(x = reorder(term, score), y = score, fill = score)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_gradient(low = "#fde0dd", high = "#c51b8a") +
+  geom_text(aes(label = round(score, 2)), hjust = -0.1, size = 3.5) +
+  labs(
+    title = "Top 20 Terms by TF-IDF (sum across corpus)",
+    subtitle = "TF-IDF sum across documents — higher values indicate more informative terms",
+    x = NULL, y = "TF-IDF sum",
+    caption = "Vocabulary pruned: term_count_min=5, doc_proportion_min=0.0005, doc_proportion_max=0.8"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.y = element_text(size = 11),
+        plot.subtitle = element_text(size = 11, color = "gray30"),
+        plot.caption = element_text(size = 9, color = "gray50")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
+
+ggsave(file.path(OUTPUT_FIGURES, "top_terms_tfidf_top20.png"), p_top_pretty, width = 10, height = 7, dpi = 300)
+message("Saved top-terms TF-IDF plot: top_terms_tfidf_top20.png")
+
+# ---- 8. Lexicon-based sentiment scores (syuzhet / bing / afinn) ----
 syuzhet_scores <- get_sentiment(texts, method = "syuzhet")
 bing_scores <- get_sentiment(texts, method = "bing")
 afinn_scores <- get_sentiment(texts, method = "afinn")
 
-# Save histogram of syuzhet
-p_hist <- ggplot(data.frame(score = syuzhet_scores), aes(score)) + geom_histogram(bins = 40) +
-  labs(title = "Syuzhet sentiment score distribution", x = "Syuzhet score", y = "Count")
-ggsave(file.path(OUTPUT_FIGURES, "syuzhet_hist.png"), p_hist, width = 8, height = 5)
-message("Saved syuzhet histogram to figures/")
-
-# 10. NRC emotions if desired (may take a bit)
-nrc_data <- get_nrc_sentiment(texts)
-emotion_sum <- colSums(nrc_data)
-emotion_df <- data.frame(emotion = names(emotion_sum), count = as.numeric(emotion_sum), stringsAsFactors = FALSE)
-p_em <- ggplot(emotion_df, aes(reorder(emotion, count), count)) + geom_col() + coord_flip() + labs(title = "NRC emotion counts")
-ggsave(file.path(OUTPUT_FIGURES, "nrc_emotions.png"), p_em, width = 8, height = 6)
-message("Saved NRC emotions plot to figures/")
-
-# 11. Save small sample CSV (for manual inspection)
-sample_out <- data.frame(Review = texts[1:500],
-                         syuzhet = syuzhet_scores[1:500],
-                         bing = bing_scores[1:500],
-                         afinn = afinn_scores[1:500],
+# save sample CSV
+sample_n <- min(500, length(texts))
+sample_out <- data.frame(Review = texts[1:sample_n],
+                         syuzhet = syuzhet_scores[1:sample_n],
+                         bing = bing_scores[1:sample_n],
+                         afinn = afinn_scores[1:sample_n],
                          stringsAsFactors = FALSE)
 write.csv(sample_out, file = file.path("reports", "sentiment_sample_full.csv"), row.names = FALSE)
-message("Saved sentiment sample to reports/")
+message("Saved sentiment sample to reports/sentiment_sample_full.csv")
 
-# 12. Persist helpful objects for supervised use
-saveRDS(tfidf_transformer, file = file.path(OUTPUT_MODELS, "tfidf_transformer.rds"))
-# Optionally save dtm_tfidf if you have disk space:
-# saveRDS(dtm_tfidf, file = file.path(OUTPUT_MODELS, "dtm_tfidf_full.rds"))
+# build comparison data.frame and labels
+sentiment_df <- data.frame(syuzhet = syuzhet_scores, bing = bing_scores, afinn = afinn_scores, stringsAsFactors = FALSE)
+cor_table <- cor(sentiment_df, use = "complete.obs")
+message("Correlation (syuzhet,bing,afinn):")
+print(round(cor_table, 3))
 
+label_from_numeric <- function(x) {
+  ifelse(x > 0, "positive", ifelse(x < 0, "negative", "neutral"))
+}
+sentiment_df$label_syuzhet <- label_from_numeric(sentiment_df$syuzhet)
+sentiment_df$label_bing    <- label_from_numeric(sentiment_df$bing)
+sentiment_df$label_afinn   <- label_from_numeric(sentiment_df$afinn)
+
+message("Counts (bing labels):"); print(table(sentiment_df$label_bing))
+message("Counts (syuzhet labels):"); print(table(sentiment_df$label_syuzhet))
+message("Counts (afinn labels):"); print(table(sentiment_df$label_afinn))
+
+# ---- 9. Sentiment histogram comparison (faceted) ----
+tmp <- sentiment_df[, c("syuzhet","bing","afinn")]
+tmp$id <- seq_len(nrow(tmp))
+tmp_m <- reshape2::melt(tmp, id.vars = "id", variable.name = "method", value.name = "score")
+
+p_hist_compare <- ggplot(tmp_m, aes(x = score)) +
+  geom_histogram(aes(y = ..density..), bins = 60, fill = "#377eb8", alpha = 0.45, color = "black") +
+  geom_density(color = "#e41a1c", size = 0.6, alpha = 0.6) +
+  facet_wrap(~method, scales = "free") +
+  labs(title = "Sentiment Score Distribution (Syuzhet / Bing / Afinn)",
+       subtitle = "Faceted distributions; scales differ because lexicon ranges differ",
+       x = "Sentiment score", y = "Density",
+       caption = "Thresholding: >0 = positive, <0 = negative, =0 neutral") +
+  theme_minimal(base_size = 14)
+
+ggsave(file.path(OUTPUT_FIGURES, "sentiment_hist_lexicons.png"), p_hist_compare, width = 12, height = 6, dpi = 300)
+message("Saved sentiment histogram comparison: sentiment_hist_lexicons.png")
+
+# ---- 10. Pie chart of sentiment distribution (bing labels) with percentages ----
+dist_bing <- as.data.frame(table(sentiment_df$label_bing))
+names(dist_bing) <- c("label","count")
+dist_bing <- dist_bing %>% arrange(desc(count))
+dist_bing$percent <- round(100 * dist_bing$count / sum(dist_bing$count), 1)
+dist_bing$label_pct <- paste0(dist_bing$label, " (", dist_bing$percent, "%)")
+
+p_pie_bing <- ggplot(dist_bing, aes(x = "", y = count, fill = label)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = paste0(percent, "%")), 
+            position = position_stack(vjust = 0.5), size = 4) +
+  theme_void() +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Sentiment Distribution (Bing lexicon)", fill = "Sentiment")
+
+ggsave(file.path(OUTPUT_FIGURES, "sentiment_distribution_bing.png"), p_pie_bing, width = 6, height = 6, dpi = 300)
+message("Saved sentiment distribution pie (bing) with percentages: sentiment_distribution_bing.png")
+
+# ---- 11. NRC emotions (may take a bit) and improved bar plot ----
+nrc_data <- get_nrc_sentiment(texts)   # might be slow on ~20k reviews
+emotion_sum <- colSums(nrc_data)
+emotion_df <- data.frame(emotion = names(emotion_sum), count = as.numeric(emotion_sum), stringsAsFactors = FALSE)
+emotion_df <- emotion_df %>% arrange(count)
+emotion_df$emotion <- factor(emotion_df$emotion, levels = emotion_df$emotion)
+
+p_emotion <- ggplot(emotion_df, aes(x = emotion, y = count, fill = emotion)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  scale_fill_brewer(palette = "Paired") +
+  geom_text(aes(label = count), hjust = -0.1, size = 3.5) +
+  labs(title = "NRC Emotion Counts", subtitle = "Total mentions of each NRC emotion across the corpus",
+       x = "", y = "Total mentions") +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.y = element_text(size = 12)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
+
+ggsave(file.path(OUTPUT_FIGURES, "nrc_emotion_counts.png"), p_emotion, width = 9, height = 7, dpi = 300)
+message("Saved NRC emotion counts plot: nrc_emotion_counts.png")
+
+# ---- 12. final messages ----
 message("01_exploratory_sentiment.R completed. Figures saved to: ", OUTPUT_FIGURES)
 message("Vocabulary and tfidf transformer saved to: ", OUTPUT_MODELS)

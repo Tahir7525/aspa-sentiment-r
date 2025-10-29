@@ -8,19 +8,18 @@
 
 This project performs **sentiment analysis on TripAdvisor hotel reviews** using **Machine Learning and Lexicon-based techniques in R**.
 
-The workflow combines **lexicon-based sentiment extraction** (`syuzhet`) with **supervised ML classification** (`glmnet`) built on a **TF-IDF feature representation** using `text2vec`.
+It combines **lexicon-based sentiment extraction** (`syuzhet`, `bing`, `afinn`) with a **supervised TF-IDF + GLMNET classifier**, built using the `text2vec` and `caret` frameworks.
 
 ---
 
 ## Features
 
-* Text preprocessing and vocabulary construction using **text2vec**
-* TF-IDF feature extraction with vocabulary pruning for memory efficiency
-* Lexicon-based sentiment scoring using **Syuzhet**, **Bing**, and **Afinn**
-* Emotion categorization via **NRC lexicon**
-* Supervised model using **Logistic Regression (GLMNET)**
-* Model evaluation using **caret** and **pROC** (Accuracy, ROC AUC)
-* Reproducible environment management with **renv**
+* Text preprocessing and TF-IDF vectorization using **text2vec**
+* Lexicon-based sentiment scoring using **Syuzhet**, **Bing**, **Afinn**
+* Emotion analysis using **NRC lexicon**
+* Supervised model training using **Logistic Regression (GLMNET)**
+* Model evaluation using **caret** and **pROC**
+* Reproducible dependency management with **renv**
 
 ---
 
@@ -28,64 +27,59 @@ The workflow combines **lexicon-based sentiment extraction** (`syuzhet`) with **
 
 ```
 aspa-sentiment-r/
-│
-├── data/
-│   └── tripadvisor.csv                # Dataset (20,491 customer reviews)
-│
-├── scripts/
-│   ├── 00_project_setup.R             # Folder paths + setup
-│   ├── 01_exploratory_sentiment.R     # Text cleaning + TF-IDF + Lexicon Analysis
-│   └── 02_supervised_sentiment_model.R # Supervised ML training + evaluation
-│
-├── figures/                           # Output plots
-│   ├── top_terms_text2vec.png
+├── data/                       # Dataset (20,491 TripAdvisor reviews)
+├── scripts/                    # R scripts for analysis
+│   ├── 00_project_setup.R
+│   ├── 01_exploratory_sentiment.R
+│   └── 02_supervised_sentiment_model.R
+├── figures/                    # Generated figures
 │   ├── wordcloud_text2vec.png
-│   ├── syuzhet_hist.png
-│   └── nrc_emotions.png
-│
-├── models/                            # Saved trained models + vocab/transformer
-│   ├── vocabulary.rds
-│   ├── tfidf_transformer.rds
-│   └── glmnet_cvfit.rds
-│
-├── reports/                           # CSV reports for results
-│   ├── sentiment_sample_full.csv
-│   └── test_predictions_glmnet.csv
-│
-├── renv.lock                          # Environment dependencies (like requirements.txt)
-├── .Rprofile
-├── .gitignore
+│   ├── top_terms_tfidf_top20.png
+│   ├── nrc_emotion_counts.png
+│   ├── sentiment_hist_lexicons.png
+│   └── sentiment_distribution_bing.png
+├── models/                     # Vocabulary, TF-IDF transformer, model
+├── reports/                    # CSV outputs and samples
+├── renv.lock                   # Dependencies snapshot
 └── aspa-sentiment-r.Rproj
 ```
 
 ---
 
-## Setup Instructions
+## Visual Results
 
-1. Clone the repository
+### 1. Word Cloud — Top Frequent & Informative Terms
 
-```bash
-git clone https://github.com/Ash-the-k/aspa-sentiment-r
-cd aspa-sentiment-r
-```
+![Word Cloud](figures/wordcloud_top_terms.png)
+*Visualization of the most prominent terms by TF-IDF score.*
 
-2. Open the project in RStudio.
+---
 
-3. Restore dependencies (like `pip install -r requirements.txt` in Python):
+### 2. Top 20 Terms by TF-IDF
 
-```r
-install.packages("renv")
-renv::restore()
-```
+![Top Terms TF-IDF](figures/top_terms_tfidf_top20.png)
+*High-weight words that contribute most to the sentiment model.*
 
-4. Run the analysis scripts:
+---
 
-```r
-source("scripts/01_exploratory_sentiment.R")
-source("scripts/02_supervised_sentiment_model.R")
-```
+### 3. Emotion Breakdown (NRC Lexicon)
 
-All output visualizations and reports will be generated automatically inside the `figures/` and `reports/` folders.
+![Emotion Counts](figures/nrc_emotion_counts.png)
+*Distribution of emotional categories such as joy, trust, sadness, anger, etc.*
+
+---
+
+### 4. Sentiment Score Distributions (Lexicon Comparison)
+
+![Sentiment Histograms](figures/sentiment_hist_lexicons.png)
+*Comparative sentiment score ranges across Syuzhet, Bing, and Afinn lexicons.*
+
+---
+
+### 5. Sentiment Distribution (Pie Chart)
+
+![Sentiment Distribution Pie](figures/sentiment_distribution_bing.png)
+*Proportion of positive, neutral, and negative sentiments based on Bing lexicon.*
 
 ---
 
@@ -103,60 +97,48 @@ The model shows **outstanding predictive performance**, demonstrating the power 
 
 ---
 
-## Sample Outputs
+## Setup Instructions
 
-| Visualization                 | Description                                   |
-| ----------------------------- | --------------------------------------------- |
-| `top_terms_text2vec.png`      | Top 20 terms by TF-IDF weight                 |
-| `wordcloud_text2vec.png`      | Word frequency visualization                  |
-| `syuzhet_hist.png`            | Lexicon-based sentiment distribution          |
-| `nrc_emotions.png`            | Emotion breakdown (joy, anger, sadness, etc.) |
-| `test_predictions_glmnet.csv` | Model predictions for test data               |
+1. Clone the repository:
 
----
+   ```bash
+   git clone https://github.com/Ash-the-k/aspa-sentiment-r
+   cd aspa-sentiment-r
+   ```
 
-## Key Libraries Used
+2. Open the project in RStudio.
 
-| Category               | Packages                               |
-| ---------------------- | -------------------------------------- |
-| Text Processing        | `text2vec`, `data.table`, `Matrix`     |
-| Visualization          | `ggplot2`, `wordcloud`, `RColorBrewer` |
-| Lexicon Sentiment      | `syuzhet`                              |
-| Machine Learning       | `caret`, `glmnet`, `pROC`              |
-| Environment Management | `renv`, `here`                         |
+3. Restore dependencies (like `pip install -r requirements.txt` in Python):
+
+   ```r
+   install.packages("renv")
+   renv::restore()
+   ```
+
+4. Run the analysis scripts:
+
+   ```r
+   source("scripts/01_exploratory_sentiment.R")
+   source("scripts/02_supervised_sentiment_model.R")
+   ```
+
+All visualizations will be generated in the `figures/` folder, and results in `reports/`.
 
 ---
 
 ## Methodology Summary
 
-1. **Data Cleaning:** Remove noise, punctuation, and stopwords.
-2. **TF-IDF Construction:** Use `text2vec` to create a sparse document-term matrix with pruning.
-3. **Exploratory Lexicon Analysis:** Compute sentiment polarity and emotions using Syuzhet and NRC lexicons.
-4. **Supervised Model Training:**
-
-   * Convert `Rating` into binary classes (Positive ≥4, Negative ≤2).
-   * Train a Logistic Regression model using `glmnet` with 5-fold cross-validation.
-5. **Evaluation:** Generate confusion matrix, accuracy, ROC-AUC, and save model artifacts.
-
----
-
-## Results & Discussion
-
-> The trained model achieved **94.6% accuracy** and **0.9836 AUC**, demonstrating robust performance on the sentiment classification task. The analysis highlights the dominance of positive reviews within the dataset and the effectiveness of sparse TF-IDF features combined with regularized logistic regression.
->
-> Lexicon-based methods complemented the machine learning model by offering emotional insights into the review corpus, identifying “joy”, “trust”, and “anticipation” as the most frequent emotions among customer feedback.
+1. **Data Cleaning:** Removal of punctuation, symbols, and stopwords.
+2. **TF-IDF Construction:** Sparse document-term matrix creation via `text2vec`.
+3. **Exploratory Lexicon Analysis:** Sentiment and emotion extraction using `syuzhet` and NRC.
+4. **Supervised Model Training:** Logistic Regression (`glmnet`) trained on TF-IDF features.
+5. **Evaluation:** Confusion matrix, accuracy, and ROC-AUC metrics.
 
 ---
 
 ## Conclusion
 
-This project demonstrates an **end-to-end sentiment analysis pipeline** in R, integrating:
-
-* Efficient text preprocessing with **text2vec**
-* Emotional insight extraction using **syuzhet**
-* Predictive modeling with **GLMNET Logistic Regression**
-
-It serves as a **reproducible template** for future NLP projects in R that require both **descriptive (lexicon)** and **predictive (ML)** sentiment approaches.
+This project demonstrates an **end-to-end sentiment analysis workflow** in R, integrating both **descriptive (lexicon)** and **predictive (machine learning)** approaches. It can serve as a reproducible template for future NLP applications in R.
 
 ---
 
