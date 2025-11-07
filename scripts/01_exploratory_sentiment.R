@@ -73,32 +73,60 @@ message("Saved TF-IDF transformer to: ", file.path(OUTPUT_MODELS, "tfidf_transfo
 
 # ---- Helper: robust column sums ----
 compute_col_sums_safe <- function(obj) {
-  # try Matrix::colSums for sparse
-  try({
-    if (inherits(obj, "dgCMatrix") || inherits(obj, "dgTMatrix") || inherits(obj, "sparseMatrix")) {
+  # 1) Matrix::colSums path (for sparse matrices)
+  if (inherits(obj, c("dgCMatrix", "dgTMatrix", "sparseMatrix"))) {
+    message("[compute] Trying Matrix::colSums() for sparse matrix...")
+    try({
       cs <- Matrix::colSums(obj)
-      if (!is.null(cs) && length(cs) > 0) return(as.numeric(cs))
-    }
-  }, silent = TRUE)
-  # try base colSums if matrix
-  try({
-    if (is.matrix(obj)) {
+      if (!is.null(cs) && length(cs) > 0) {
+        message("[compute] ✓ Used Matrix::colSums() (sparse matrix).")
+        return(as.numeric(cs))
+      } else {
+        message("[compute] × Matrix::colSums() returned empty.")
+      }
+    }, silent = FALSE)
+  }
+
+  # 2) Base colSums for regular R matrix
+  if (is.matrix(obj)) {
+    message("[compute] Trying base::colSums() for regular matrix...")
+    try({
       cs <- base::colSums(obj)
-      if (!is.null(cs) && length(cs) > 0) return(as.numeric(cs))
-    }
-  }, silent = TRUE)
-  # numeric vector with names
-  if (is.numeric(obj) && !is.null(names(obj))) return(as.numeric(obj))
-  # try coercion
+      if (!is.null(cs) && length(cs) > 0) {
+        message("[compute] ✓ Used base::colSums() (dense matrix).")
+        return(as.numeric(cs))
+      } else {
+        message("[compute] × base::colSums() returned empty.")
+      }
+    }, silent = FALSE)
+  }
+
+  # 3) Named numeric vector fallback
+  if (is.numeric(obj) && !is.null(names(obj))) {
+    message("[compute] ✓ Using named numeric vector directly (vocab counts).")
+    return(as.numeric(obj))
+  }
+
+  # 4) Last resort: convert to matrix and try again
+  message("[compute] Trying conversion to dense matrix...")
   try({
     m <- as.matrix(obj)
     if (is.matrix(m)) {
       cs <- base::colSums(m)
-      if (!is.null(cs) && length(cs) > 0) return(as.numeric(cs))
+      if (!is.null(cs) && length(cs) > 0) {
+        message("[compute] ✓ Used as.matrix() + base::colSums().")
+        return(as.numeric(cs))
+      } else {
+        message("[compute] × Conversion succeeded but colSums gave empty.")
+      }
     }
-  }, silent = TRUE)
+  }, silent = FALSE)
+
+  # 5) Failure
+  message("[compute] ⚠ All methods failed — returning NULL.")
   return(NULL)
 }
+
 
 # ---- 5. Compute term scores for plotting ----
 term_scores <- compute_col_sums_safe(dtm_tfidf)
@@ -299,7 +327,7 @@ message("Saved boxed pie chart with white background: sentiment_distribution_bin
 
 
 # ---- 11. NRC emotions (may take a bit) and improved bar plot ----
-nrc_data <- get_nrc_sentiment(texts)   # might be slow on ~20k reviews
+nrc_data <- get_nrc_sentiment(texts)   
 emotion_sum <- colSums(nrc_data)
 emotion_df <- data.frame(emotion = names(emotion_sum), count = as.numeric(emotion_sum), stringsAsFactors = FALSE)
 emotion_df <- emotion_df %>% arrange(count)
